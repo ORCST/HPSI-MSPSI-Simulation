@@ -40,6 +40,4 @@ Building from source requires CMake, the CUDA Toolkit, and a compatible C++ comp
 
 ## Notes
 
-This program is a C++/CUDA application, not a MATLAB implementation.
-
 The simulation is intended for method demonstration and reproducibility. The measured runtime ratio should not be interpreted as an intrinsic performance limit of either method.

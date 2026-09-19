@@ -2,13 +2,21 @@
 
 // Generate camera intensities from the moving surface and calibrated projector.
 __constant__ float KP[9];
+__host__ __device__ float movingDepth(const Geometry &g, const Truth &base, float2 bounds, float phase) {
+    float x = (g.cu - 389.f) / 271.f, y = (g.cv - 300.f) / 185.f;
+    float offset = 10.f * sinf(phase) + 8.f * x * sinf(2.f * phase)
+                 + 6.f * y * sinf(phase)
+                 + 8.f * expf(-3.f * (x*x + y*y)) * sinf(3.f * phase);
+    float margin = .8f * fminf(base.z - bounds.x, bounds.y - base.z);
+    return base.z + margin * tanhf(offset / fmaxf(margin, .001f));
+}
 __global__ void simulate(const Geometry *g, const Truth *base, Truth *truth, float *rh, float *rm,
-                         int n, float phase, float noise) {
+                         const float2 *depthBounds, int n, float phase, float noise) {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p >= n)
         return;
     Geometry a = g[p];
-    float z = base[p].z + 2 * sinf(phase) * cosf(a.cu * .012f);
+    float z = movingDepth(a, base[p], depthBounds[p], phase);
     float q[3] = {a.qx * z + TRANS[0], a.qy * z + TRANS[1], a.qz * z + TRANS[2]}, pr[3];
     for (int j = 0; j < 3; j++)
         pr[j] = KP[j * 3] * q[0] + KP[j * 3 + 1] * q[1] + KP[j * 3 + 2] * q[2];

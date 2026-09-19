@@ -6,7 +6,28 @@ std::atomic<int> mode{0};
 std::atomic<bool> noiseEnabled{false};
 std::mutex displayMutex;
 std::vector<float3> displayed, ground;
+std::vector<Geometry> referenceGeometry;
+std::vector<Truth> referenceBase;
+std::vector<float2> referenceBounds;
+std::chrono::steady_clock::time_point sceneEpoch;
+bool referenceReady = false, referenceAnimated = true;
+int displayedMethod = -1;
+float displayedTime = 0;
+
+void updateReference() {
+    if (!referenceReady) return;
+    float seconds = referenceAnimated ? std::chrono::duration<float>(std::chrono::steady_clock::now()-sceneEpoch).count() : 0;
+    float phase = 2.f * PI * std::fmod(seconds,24.f) / 24.f;
+    ground.resize(referenceBase.size());
+    for(size_t i=0;i<ground.size();++i) {
+        const auto &g=referenceGeometry[i];
+        float z=movingDepth(g,referenceBase[i],referenceBounds[i],phase);
+        ground[i]=make_float3(g.rx*z,g.ry*z,g.rz*z);
+    }
+}
+
 std::string caption = "Starting CUDA...";
+float3 viewCenter = make_float3(0, 0, 0);
 float angleX = 15, angleY = 0, zoom = 1;
 bool dragging = false;
 int lastX, lastY;
@@ -78,18 +99,7 @@ void drawCloud(const std::vector<float3> &pts, int x, int width, int height) {
     glRotatef(angleY, 0, 1, 0);
     if (pts.empty())
         return;
-    double cx = 0, cy = 0, cz = 0;
-    int n = 0;
-    for (auto p : ground)
-        if (std::isfinite(p.z)) {
-            cx += p.x;
-            cy += p.y;
-            cz += p.z;
-            n++;
-        }
-    if (!n)
-        return;
-    glTranslatef(float(-cx / n), float(-cy / n), float(-cz / n));
+    glTranslatef(-viewCenter.x, -viewCenter.y, -viewCenter.z);
     glPointSize(2.0f);
     std::vector<float3> colors(pts.size());
     for (size_t i = 0; i < pts.size(); i++) {

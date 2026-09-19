@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.24)
-# Include native GPU code and forward-compatible PTX without model-specific branches.
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES "75-real;75-virtual")
 endif()

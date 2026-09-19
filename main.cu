@@ -101,13 +101,37 @@ void compute(Options o) {
                   << std::endl;
         std::vector<float2> hostUV(n);
         std::vector<float3> pts(n), gt(n);
+        std::vector<float2> bounds(n);
+        auto endpointDepth = [&](const Geometry &g, float u, float v) {
+            double rp[3], q[3] = {g.qx, g.qy, g.qz};
+            for(int k=0;k<3;++k) rp[k]=cal[k*3]*(u+449)+cal[k*3+1]*(v+29)+cal[k*3+2];
+            double aa=0,ab=0,bb=0,at=0,bt=0;
+            for(int k=0;k<3;++k){aa+=q[k]*q[k];ab-=q[k]*rp[k];bb+=rp[k]*rp[k];at-=q[k]*cal[9+k];bt+=rp[k]*cal[9+k];}
+            return float((bb*at-ab*bt)/(aa*bb-ab*ab));
+        };
+        double cx=0,cy=0,cz=0;
+        for(int p=0;p<n;++p){
+            float a=endpointDepth(geo[p],geo[p].ax,geo[p].ay), b=endpointDepth(geo[p],geo[p].bx,geo[p].by);
+            bounds[p]=make_float2(std::min(a,b),std::max(a,b));
+            if(!(base[p].z>bounds[p].x && base[p].z<bounds[p].y)) throw std::runtime_error("Surface outside depth bounds");
+            cx+=base[p].x;cy+=base[p].y;cz+=base[p].z;
+        }
+        {std::lock_guard<std::mutex> lock(displayMutex);viewCenter=make_float3(float(cx/n),float(cy/n),float(cz/n));}
+        Device<float2> depthBounds(n);depthBounds.upload(bounds.data());
+        auto motionStart = std::chrono::steady_clock::now();
+        {
+            std::lock_guard<std::mutex> lock(displayMutex);
+            referenceGeometry=geo;referenceBase=base;referenceBounds=bounds;
+            sceneEpoch=motionStart;referenceAnimated=o.animate;referenceReady=true;
+        }
         Timer timer;
         int done[2] = {0, 0};
         for (int frame = 0; running && (o.frames == 0 || frame < o.frames); frame++) {
             int m = mode.load();
             const float frameNoise = noiseEnabled.load() ? o.noise : 0.0f;
             bool warmup = done[m] < 3;
-            float phase = o.animate ? float(frame) * .03f : 0;
+            float sceneTime = o.animate ? std::chrono::duration<float>(std::chrono::steady_clock::now()-motionStart).count() : 0;
+            float phase = 2.f * PI * std::fmod(sceneTime,24.f) / 24.f;
             {
                 std::lock_guard<std::mutex> lock(displayMutex);
                 caption = std::string(m ? "MSPSI" : "HPSI") + " computing frame " + std::to_string(frame)
@@ -117,7 +141,7 @@ void compute(Options o) {
             auto start = std::chrono::steady_clock::now();
 
             // Generate the current fringe images; capture noise once per frame.
-            simulate<<<(n + 255) / 256, 256>>>(dg.p, db.p, dt.p, synthH.p, synthM.p, n, phase,
+            simulate<<<(n + 255) / 256, 256>>>(dg.p, db.p, dt.p, synthH.p, synthM.p, depthBounds.p, n, phase,
                                                frameNoise);
             CUDA_CHECK(
                 cudaMemcpy(rh.data(), synthH.p, rh.size() * sizeof(float), cudaMemcpyDeviceToHost));
@@ -204,7 +228,7 @@ void compute(Options o) {
             {
                 std::lock_guard<std::mutex> lock(displayMutex);
                 displayed = pts;
-                ground = gt;
+                displayedMethod=m;displayedTime=sceneTime;
                 std::ostringstream s;
                 s << "Truth (left) | " << (m ? "MSPSI" : "HPSI") << " (right) " << std::fixed
                   << std::setprecision(2) << t.wall << " ms | UV RMSE " << eu << " px | Noise "
@@ -216,14 +240,14 @@ void compute(Options o) {
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
                     .count();
             const char *name = m ? "MSPSI" : "HPSI";
-            std::cout << name << " frame=" << frame << " noise=" << frameNoise
+            std::cout << name << " frame=" << frame << " scene_s=" << sceneTime << " noise=" << frameNoise
                       << (warmup ? " warmup" : "") << std::fixed << std::setprecision(3)
                       << " upload=" << t.upload;
             if (m == 0) std::cout << " coeff=" << t.coeff;
             std::cout << " LTC Computation=" << (m ? t.coeff + t.profiles : t.profiles) << " Peak Search=" << t.search
                       << " subpixel=" << t.subpixel << " tri=" << t.triangulation
                       << " download=" << t.download << " total=" << t.wall << " ms e2e=" << e2e
-                      << " UV_RMSE=" << eu << " bad=" << bad << std::endl;
+                      << " UV_RMSE=" << eu << " depth_RMSE=" << ez << " finite=" << finite << " bad=" << bad << std::endl;
             done[m]++;
         }
     } catch (const std::exception &e) {
@@ -303,11 +327,13 @@ int main(int argc, char **argv) {
         wc.lpszClassName = "PSIClean";
         wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
         RegisterClassA(&wc);
-        HWND win = CreateWindowA(wc.lpszClassName, "HPSI / MSPSI", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        HWND win = CreateWindowA(wc.lpszClassName, "HPSI / MSPSI", WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
                                  CW_USEDEFAULT, CW_USEDEFAULT, 1280, 800, nullptr, nullptr,
                                  wc.hInstance, nullptr);
         if (!win)
             throw std::runtime_error("Window creation failed");
+        HWND leftLabel=CreateWindowA("STATIC","Reference Point Cloud (live)",WS_CHILD|WS_VISIBLE|SS_CENTER,0,0,600,28,win,nullptr,wc.hInstance,nullptr);
+        HWND rightLabel=CreateWindowA("STATIC","Reconstructed Point Cloud (waiting)",WS_CHILD|WS_VISIBLE|SS_CENTER,600,0,600,28,win,nullptr,wc.hInstance,nullptr);
         HDC dc = GetDC(win);
         PIXELFORMATDESCRIPTOR pf{};
         pf.nSize = sizeof(pf);
@@ -339,6 +365,7 @@ int main(int argc, char **argv) {
             }
             if (!running)
                 break;
+            repaint=true;
             if (!repaint.exchange(false)) {
                 if (finished && o.frames > 0)
                     running = false;
@@ -347,11 +374,18 @@ int main(int argc, char **argv) {
             }
             RECT rect;
             GetClientRect(win, &rect);
+            MoveWindow(leftLabel,0,0,rect.right/2,28,TRUE);
+            MoveWindow(rightLabel,rect.right/2,0,rect.right-rect.right/2,28,TRUE);
             glClearColor(.025f, .035f, .055f, 1);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             {
                 std::lock_guard<std::mutex> lock(displayMutex);
+                updateReference();
                 SetWindowTextA(win, caption.c_str());
+                std::ostringstream label;
+                if(displayedMethod<0) label << "Reconstructed Point Cloud (waiting)";
+                else label << (displayedMethod ? "MSPSI" : "HPSI") << " Reconstructed Point Cloud | captured t=" << std::fixed << std::setprecision(2) << displayedTime << " s";
+                SetWindowTextA(rightLabel,label.str().c_str());
                 drawCloud(ground, 0, rect.right / 2, std::max(1L, rect.bottom));
                 drawCloud(displayed, rect.right / 2, rect.right / 2, std::max(1L, rect.bottom));
             }

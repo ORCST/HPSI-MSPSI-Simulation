@@ -2,8 +2,6 @@
 
 This program provides a simple simulation of HPSI and MSPSI associated with our paper:
 
-**“Insert the paper title here”**
-
 Both implementations follow the core reconstruction principles of their respective methods. They use the same simulated scene, calibration parameters, camera ROI, and triangulation routine, and both employ CUDA acceleration. Implementation details and optimization choices may affect runtime.
 
 ## Simulation Settings

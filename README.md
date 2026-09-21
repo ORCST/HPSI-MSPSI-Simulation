@@ -38,6 +38,10 @@ Running the supplied executable does not require a separate installation of the 
 
 Building from source requires CMake, the CUDA Toolkit, and a compatible C++ compiler. Runtime and numerical results may vary across computers.
 
+## Example Runtime
+
+In an example run on an NVIDIA GeForce RTX 4060 GPU, reconstructing 199,998 points without simulated noise took approximately **14–15 ms for HPSI** and **2.97 s for MSPSI**. These are illustrative per-frame measurements, not benchmark averages; the displayed MSPSI frame was marked as warm-up. Times correspond to the program's `total` field and exclude scene generation and screen rendering. Actual runtime may vary with hardware and execution conditions.
+
 ## Notes
 
 The simulation is intended for method demonstration and reproducibility. The measured runtime ratio should not be interpreted as an intrinsic performance limit of either method.

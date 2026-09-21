@@ -40,7 +40,19 @@ Building from source requires CMake, the CUDA Toolkit, and a compatible C++ comp
 
 ## Example Runtime
 
-In an example run on an NVIDIA GeForce RTX 4060 GPU, reconstructing 199,998 points without simulated noise took approximately **14–15 ms for HPSI** and **2.97 s for MSPSI**. These are illustrative per-frame measurements, not benchmark averages; the displayed MSPSI frame was marked as warm-up. Times correspond to the program's `total` field and exclude scene generation and screen rendering. Actual runtime may vary with hardware and execution conditions.
+The table below shows individual frame timings from an example run on an NVIDIA GeForce RTX 4060 GPU, reconstructing 199,998 points without simulated noise. These are single-frame measurements rather than averages.
+
+| Stage | HPSI | MSPSI |
+|-------|---------------------:|----------------------:|
+| Input upload | 1.007 | 1.966 |
+| LTC computation, including coefficients | 4.745 | 7.145 |
+| Peak search | 9.022 | 2960.549 |
+| Final subpixel refinement | 0.142 | 0.284 |
+| Triangulation | 0.021 | 0.020 |
+| Result download | 0.318 | 0.361 |
+| **Total reconstruction** | **15.276** | **2970.370** |
+
+Total reconstruction corresponds to the program's `total` field and excludes scene generation and screen rendering. Stage timings use CUDA events, whereas the total uses wall-clock timing, so their sum may differ slightly from the reported total. The MSPSI frame shown here was marked as warm-up. Actual runtime may vary with hardware and execution conditions.
 
 ## Notes
 
